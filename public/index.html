@@ -1,46 +1,64 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Raza Session Generator</title>
-<link rel="stylesheet" href="/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAZA Session Generator</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-<main class="page">
-<section class="card">
-<div class="brand">
-<div class="logo">R</div>
-<div><div class="name">ʀᴀᴢᴀ</div><div class="sub">SESSION GENERATOR</div></div>
-</div>
-<div class="heading">
-<h1>WhatsApp Session</h1>
-<p>Generate your Raza-MD session with a secure pairing code.</p>
-</div>
-<div id="status" class="status"><span></span><b>Ready to pair</b></div>
-<label>WhatsApp number</label>
-<div class="input"><span>+</span><input id="number" inputmode="numeric" placeholder="923197135780"></div>
-<button id="generate">Generate Pair Code</button>
+  <main class="page">
+    <section class="card">
+      <div class="brand">
+        <div class="logo">R</div>
+        <div>
+          <div class="name">ʀᴀᴢᴀ</div>
+          <div class="sub">SESSION GENERATOR</div>
+        </div>
+      </div>
 
-<section id="pairBox" class="result hidden">
-<small>PAIRING CODE</small>
-<div id="code" class="code"></div>
-<button id="copyCode" class="secondary">Copy Pair Code</button>
-<p>WhatsApp → Linked devices → Link a device → Link with phone number.</p>
-</section>
+      <div class="heading">
+        <h1>WhatsApp Session</h1>
+        <p>Generate your Raza-MD session with a secure pairing code.</p>
+      </div>
 
-<section id="sessionBox" class="result hidden">
-<div class="success">✓ WhatsApp Connected</div>
-<small>RAZA SESSION</small>
-<div id="session" class="session"></div>
-<button id="show" class="secondary">Show Session</button>
-<button id="copySession" class="secondary hidden">Copy Session</button>
-<div id="sent" class="sent hidden">✓ Session sent to paired number</div>
-</section>
+      <div id="status" class="status">
+        <span></span><b>Ready to pair</b>
+      </div>
 
-<footer>ᴘᴏᴡᴇʀᴇᴅ ʙʏ ʟᴇɢᴇɴᴅ ʀᴀᴢᴀ</footer>
-</section>
-</main>
-<script src="/app.js"></script>
+      <label for="number">WhatsApp number</label>
+      <div class="input">
+        <span>+</span>
+        <input id="number" type="tel" inputmode="numeric" placeholder="923001234567" autocomplete="off" />
+      </div>
+
+      <button id="generate">Generate Pair Code</button>
+
+      <section id="pairBox" class="result hidden">
+        <small>PAIRING CODE</small>
+        <div id="code" class="code" title="Click to copy">---- ----</div>
+        <button id="copyCode" class="secondary">Copy Pair Code</button>
+        <p>WhatsApp → Linked devices → Link a device → Link with phone number.</p>
+      </section>
+
+      <section id="sessionBox" class="result hidden">
+        <div class="success">✓ WhatsApp Connected</div>
+        <small>RAZA SESSION</small>
+        <div id="session" class="session">RAZA~••••••••••••••••••••</div>
+        <div class="action-row">
+          <button id="show" class="secondary">Show Session</button>
+          <button id="copySession" class="secondary hidden">Copy Session</button>
+        </div>
+        <div id="sent" class="sent hidden">✓ Session sent to paired number</div>
+      </section>
+
+      <footer>ᴘᴏᴡᴇʀᴇᴅ ʙʏ ʟᴇɢᴇɴᴅ ʀᴀᴢᴀ</footer>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
 </body>
 </html>
