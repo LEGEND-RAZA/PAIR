@@ -1,0 +1,15 @@
+{
+  "name": "raza-pair",
+  "version": "1.0.0",
+  "description": "Raza-MD WhatsApp pairing and session generator",
+  "type": "module",
+  "main": "index.js",
+  "scripts": { "start": "node index.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@hapi/boom": "^10.0.0",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "express": "^5.1.0",
+    "pino": "^9.7.0"
+  }
+}
