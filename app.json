@@ -1,0 +1,29 @@
+{
+  "name": "Raza Session Generator",
+  "description": "Raza-MD WhatsApp pairing and session generator",
+  "repository": "https://github.com/LEGEND-RAZA/RAZA-PAIR",
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "raza-md",
+    "session-generator"
+  ],
+  "stack": "heroku-24",
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "env": {
+    "NODE_ENV": {
+      "description": "Application environment",
+      "value": "production"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  }
+}
