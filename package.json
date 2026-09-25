@@ -4,8 +4,13 @@
   "description": "Raza-MD WhatsApp pairing and session generator",
   "type": "module",
   "main": "index.js",
-  "scripts": { "start": "node index.js" },
-  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@hapi/boom": "^10.0.0",
     "@whiskeysockets/baileys": "7.0.0-rc14",
