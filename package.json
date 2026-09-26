@@ -1,6 +1,7 @@
 {
   "name": "raza-pair",
   "version": "2.0.0",
+  "description": "RAZA-MD WhatsApp pairing and session generator",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -13,7 +14,6 @@
     "@hapi/boom": "^10.0.0",
     "@whiskeysockets/baileys": "7.0.0-rc14",
     "express": "^5.1.0",
-    "mongodb": "^6.20.0",
     "pino": "^9.7.0"
   }
 }
