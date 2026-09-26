@@ -3,7 +3,6 @@ import P from 'pino'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { MongoClient } from 'mongodb'
 
 import {
   makeWASocket,
@@ -26,67 +25,25 @@ const SESSIONS =
   path.join(ROOT, 'sessions')
 
 const logger =
-  P({ level: 'silent' })
+  P({
+    level: 'silent'
+  })
 
 const jobs =
   new Map()
 
-const MONGODB_URI =
-  process.env.MONGODB_URI
-
-const MONGODB_DB =
-  process.env.MONGODB_DB || 'raza_pair'
-
-if (!MONGODB_URI) {
-  console.error(
-    '[-] MONGODB_URI is missing.'
-  )
-
-  process.exit(1)
-}
-
-const mongo =
-  new MongoClient(
-    MONGODB_URI
-  )
-
-await mongo.connect()
-
-const db =
-  mongo.db(
-    MONGODB_DB
-  )
-
-const sessions =
-  db.collection(
-    'sessions'
-  )
-
-await sessions.createIndex(
-  {
-    token: 1
-  },
-  {
-    unique: true
-  }
-)
-
-await sessions.createIndex(
-  {
-    createdAt: 1
-  },
-  {
-    expireAfterSeconds:
-      60 * 60 * 24 * 90
-  }
-)
-
-await fs.mkdir(
-  SESSIONS,
-  {
-    recursive: true
-  }
-)
+/*
+ * Short session storage.
+ *
+ * token -> {
+ *   version,
+ *   files,
+ *   createdAt,
+ *   number
+ * }
+ */
+const storedSessions =
+  new Map()
 
 app.use(
   express.json({
@@ -101,6 +58,13 @@ app.use(
       'public'
     )
   )
+)
+
+await fs.mkdir(
+  SESSIONS,
+  {
+    recursive: true
+  }
 )
 
 function makeId() {
@@ -119,8 +83,12 @@ function makeToken() {
 }
 
 function cleanNumber(value) {
-  return String(value || '')
-    .replace(/\D/g, '')
+  return String(
+    value || ''
+  ).replace(
+    /\D/g,
+    ''
+  )
 }
 
 function delay(ms) {
@@ -133,26 +101,34 @@ function delay(ms) {
   )
 }
 
-async function cleanupJob(jobId) {
+async function cleanupJob(
+  jobId
+) {
   const job =
     jobs.get(jobId)
 
-  if (!job) return
+  if (!job) {
+    return
+  }
 
   job.cleaned =
     true
 
   try {
     if (job.sock) {
-      job.sock.ev
-        .removeAllListeners(
-          'connection.update'
-        )
+      try {
+        job.sock.ev
+          .removeAllListeners(
+            'connection.update'
+          )
+      } catch {}
 
-      job.sock.ev
-        .removeAllListeners(
-          'creds.update'
-        )
+      try {
+        job.sock.ev
+          .removeAllListeners(
+            'creds.update'
+          )
+      } catch {}
 
       try {
         job.sock.ws?.close()
@@ -170,8 +146,10 @@ async function cleanupJob(jobId) {
     await fs.rm(
       job.dir,
       {
-        recursive: true,
-        force: true
+        recursive:
+          true,
+        force:
+          true
       }
     )
   } catch {}
@@ -216,7 +194,9 @@ async function encodeSession(
   }
 
   return {
-    version: 1,
+    version:
+      1,
+
     files
   }
 }
@@ -232,22 +212,31 @@ async function saveSession(
   const token =
     makeToken()
 
-  await sessions.insertOne({
+  storedSessions.set(
     token,
-    number:
-      job.number,
-    version:
-      data.version,
-    files:
-      data.files,
-    createdAt:
-      new Date(),
-    updatedAt:
-      new Date()
-  })
+    {
+      token,
+
+      number:
+        job.number,
+
+      version:
+        data.version,
+
+      files:
+        data.files,
+
+      createdAt:
+        Date.now()
+    }
+  )
 
   job.token =
     token
+
+  console.log(
+    `[SESSION] Stored ${token} for ${job.number}`
+  )
 
   return token
 }
@@ -258,7 +247,8 @@ async function requestPairingCode(
   if (
     job.cleaned ||
     job.code ||
-    job.status === 'error'
+    job.status ===
+      'error'
   ) {
     return
   }
@@ -279,7 +269,9 @@ async function requestPairingCode(
     true
 
   try {
-    await delay(2000)
+    await delay(
+      2000
+    )
 
     if (
       job.cleaned ||
@@ -450,9 +442,9 @@ async function connectJob(
       }
 
       /*
-       * ==============================
-       * SUCCESSFULLY CONNECTED
-       * ==============================
+       * ==========================
+       * SUCCESS
+       * ==========================
        */
 
       if (
@@ -478,10 +470,6 @@ async function connectJob(
             return
           }
 
-          /*
-           * Save full auth files
-           * and create short token.
-           */
           const token =
             await saveSession(
               job
@@ -494,9 +482,7 @@ async function connectJob(
             `${job.number}@s.whatsapp.net`
 
           /*
-           * ==============================
-           * 1. SCANNED SUCCESSFULLY
-           * ==============================
+           * 1. SUCCESS MESSAGE
            */
 
           try {
@@ -513,9 +499,7 @@ async function connectJob(
             )
 
             /*
-             * ==============================
-             * 2. SESSION ID ONLY
-             * ==============================
+             * 2. SESSION ID
              */
 
             await sock.sendMessage(
@@ -531,9 +515,7 @@ async function connectJob(
             )
 
             /*
-             * ==============================
              * 3. SESSION DOCUMENT
-             * ==============================
              */
 
             await sock.sendMessage(
@@ -572,8 +554,9 @@ async function connectJob(
           }
 
           /*
-           * Close temporary socket
-           * after messages are sent.
+           * Keep the stored session
+           * available, then close
+           * the temporary pairing job.
            */
 
           setTimeout(
@@ -599,9 +582,9 @@ async function connectJob(
       }
 
       /*
-       * ==============================
-       * CONNECTION CLOSED
-       * ==============================
+       * ==========================
+       * CLOSED
+       * ==========================
        */
 
       if (
@@ -616,7 +599,10 @@ async function connectJob(
             ?.statusCode
 
         console.log(
-          `[CLOSE] ${job.number} -> ${statusCode || 'unknown'}`
+          `[CLOSE] ${job.number} -> ${
+            statusCode ||
+            'unknown'
+          }`
         )
 
         if (
@@ -700,9 +686,9 @@ async function connectJob(
 }
 
 /*
- * ==============================
+ * ==========================
  * HEALTH
- * ==============================
+ * ==========================
  */
 
 app.get(
@@ -711,6 +697,7 @@ app.get(
     res.json({
       success:
         true,
+
       status:
         'online'
     })
@@ -718,14 +705,36 @@ app.get(
 )
 
 /*
- * ==============================
- * CREATE PAIR
- * ==============================
+ * ==========================
+ * HOME
+ * ==========================
+ */
+
+app.get(
+  '/',
+  (req, res) => {
+    res.sendFile(
+      path.join(
+        ROOT,
+        'public',
+        'index.html'
+      )
+    )
+  }
+)
+
+/*
+ * ==========================
+ * START PAIRING
+ * ==========================
  */
 
 app.post(
   '/api/pair',
-  async (req, res) => {
+  async (
+    req,
+    res
+  ) => {
     try {
       const number =
         cleanNumber(
@@ -741,21 +750,22 @@ app.post(
         ).json({
           success:
             false,
+
           error:
             'Invalid WhatsApp number'
         })
       }
 
       /*
-       * Return existing active job
-       * for the same number.
+       * Existing active job
        */
 
       for (
         const job of jobs.values()
       ) {
         if (
-          job.number === number &&
+          job.number ===
+            number &&
           ![
             'ready',
             'error'
@@ -766,10 +776,13 @@ app.post(
           return res.json({
             success:
               true,
+
             id:
               job.id,
+
             code:
               job.code,
+
             status:
               job.status
           })
@@ -786,7 +799,9 @@ app.post(
           path.join(
             SESSIONS,
             crypto
-              .randomBytes(8)
+              .randomBytes(
+                8
+              )
               .toString(
                 'hex'
               )
@@ -860,7 +875,7 @@ app.post(
       )
 
       /*
-       * Wait for pairing code.
+       * Wait briefly for code.
        */
 
       for (
@@ -910,14 +925,17 @@ app.post(
 )
 
 /*
- * ==============================
- * PAIR STATUS
- * ==============================
+ * ==========================
+ * STATUS
+ * ==========================
  */
 
 app.get(
   '/api/status/:id',
-  (req, res) => {
+  (
+    req,
+    res
+  ) => {
     const job =
       jobs.get(
         req.params.id
@@ -929,6 +947,7 @@ app.get(
       ).json({
         success:
           false,
+
         error:
           'Pairing session not found'
       })
@@ -963,20 +982,17 @@ app.get(
 )
 
 /*
- * ==============================
+ * ==========================
  * SESSION API
- * ==============================
- *
- * The Raza-MD bot uses:
- *
- * GET /api/session/RAZA_xxxxx
- *
- * to download the full auth state.
+ * ==========================
  */
 
 app.get(
   '/api/session/:token',
-  async (req, res) => {
+  (
+    req,
+    res
+  ) => {
     try {
       const token =
         String(
@@ -993,15 +1009,16 @@ app.get(
         ).json({
           success:
             false,
+
           error:
             'Invalid session token'
         })
       }
 
       const session =
-        await sessions.findOne({
+        storedSessions.get(
           token
-        })
+        )
 
       if (!session) {
         return res.status(
@@ -1009,6 +1026,7 @@ app.get(
         ).json({
           success:
             false,
+
           error:
             'Session not found or expired'
         })
@@ -1045,14 +1063,49 @@ app.get(
 )
 
 /*
- * ==============================
- * CLEAN OLD JOBS
- * ==============================
+ * ==========================
+ * REMOVE OLD SESSIONS
+ * ==========================
+ *
+ * Sessions stay available for
+ * 24 hours.
  */
 
 setInterval(
   async () => {
-    const limit =
+    const expiry =
+      Date.now() -
+      24 * 60 * 60 * 1000
+
+    /*
+     * Remove old stored tokens.
+     */
+
+    for (
+      const [
+        token,
+        session
+      ] of storedSessions
+    ) {
+      if (
+        session.createdAt <
+        expiry
+      ) {
+        storedSessions.delete(
+          token
+        )
+
+        console.log(
+          `[SESSION] Expired ${token}`
+        )
+      }
+    }
+
+    /*
+     * Remove old pairing jobs.
+     */
+
+    const jobExpiry =
       Date.now() -
       10 * 60 * 1000
 
@@ -1064,7 +1117,7 @@ setInterval(
     ) {
       if (
         job.createdAt <
-        limit
+        jobExpiry
       ) {
         await cleanupJob(
           jobId
@@ -1079,6 +1132,12 @@ setInterval(
   60 * 1000
 ).unref()
 
+/*
+ * ==========================
+ * SERVER
+ * ==========================
+ */
+
 app.listen(
   PORT,
   () => {
@@ -1087,7 +1146,11 @@ app.listen(
     )
 
     console.log(
-      '[+] MongoDB session storage enabled.'
+      '[+] MongoDB disabled.'
+    )
+
+    console.log(
+      '[+] In-memory session storage enabled.'
     )
   }
 )
