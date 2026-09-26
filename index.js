@@ -3,12 +3,15 @@ import P from 'pino'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { MongoClient } from 'mongodb'
+
 import {
   makeWASocket,
   Browsers,
   DisconnectReason,
   useMultiFileAuthState
 } from '@whiskeysockets/baileys'
+
 import { Boom } from '@hapi/boom'
 
 const app = express()
@@ -28,9 +31,61 @@ const logger =
 const jobs =
   new Map()
 
+const MONGODB_URI =
+  process.env.MONGODB_URI
+
+const MONGODB_DB =
+  process.env.MONGODB_DB || 'raza_pair'
+
+if (!MONGODB_URI) {
+  console.error(
+    '[-] MONGODB_URI is missing.'
+  )
+
+  process.exit(1)
+}
+
+const mongo =
+  new MongoClient(
+    MONGODB_URI
+  )
+
+await mongo.connect()
+
+const db =
+  mongo.db(
+    MONGODB_DB
+  )
+
+const sessions =
+  db.collection(
+    'sessions'
+  )
+
+await sessions.createIndex(
+  {
+    token: 1
+  },
+  {
+    unique: true
+  }
+)
+
+await sessions.createIndex(
+  {
+    createdAt: 1
+  },
+  {
+    expireAfterSeconds:
+      60 * 60 * 24 * 90
+  }
+)
+
 await fs.mkdir(
   SESSIONS,
-  { recursive: true }
+  {
+    recursive: true
+  }
 )
 
 app.use(
@@ -41,7 +96,10 @@ app.use(
 
 app.use(
   express.static(
-    path.join(ROOT, 'public')
+    path.join(
+      ROOT,
+      'public'
+    )
   )
 )
 
@@ -51,6 +109,15 @@ function makeId() {
     .toString('hex')
 }
 
+function makeToken() {
+  return (
+    'RAZA_' +
+    crypto
+      .randomBytes(18)
+      .toString('base64url')
+  )
+}
+
 function cleanNumber(value) {
   return String(value || '')
     .replace(/\D/g, '')
@@ -58,7 +125,11 @@ function cleanNumber(value) {
 
 function delay(ms) {
   return new Promise(
-    resolve => setTimeout(resolve, ms)
+    resolve =>
+      setTimeout(
+        resolve,
+        ms
+      )
   )
 }
 
@@ -68,7 +139,8 @@ async function cleanupJob(jobId) {
 
   if (!job) return
 
-  job.cleaned = true
+  job.cleaned =
+    true
 
   try {
     if (job.sock) {
@@ -105,13 +177,19 @@ async function cleanupJob(jobId) {
   } catch {}
 }
 
-async function encodeSession(authDir) {
+async function encodeSession(
+  authDir
+) {
   const files = {}
 
   const names =
-    await fs.readdir(authDir)
+    await fs.readdir(
+      authDir
+    )
 
-  for (const name of names) {
+  for (
+    const name of names
+  ) {
     const file =
       path.join(
         authDir,
@@ -119,28 +197,64 @@ async function encodeSession(authDir) {
       )
 
     const stat =
-      await fs.stat(file)
+      await fs.stat(
+        file
+      )
 
-    if (stat.isFile()) {
+    if (
+      stat.isFile()
+    ) {
       files[name] =
         (
-          await fs.readFile(file)
-        ).toString('base64')
+          await fs.readFile(
+            file
+          )
+        ).toString(
+          'base64'
+        )
     }
   }
 
-  return (
-    'RAZA~' +
-    Buffer.from(
-      JSON.stringify({
-        version: 1,
-        files
-      })
-    ).toString('base64url')
-  )
+  return {
+    version: 1,
+    files
+  }
 }
 
-async function requestPairingCode(job) {
+async function saveSession(
+  job
+) {
+  const data =
+    await encodeSession(
+      job.dir
+    )
+
+  const token =
+    makeToken()
+
+  await sessions.insertOne({
+    token,
+    number:
+      job.number,
+    version:
+      data.version,
+    files:
+      data.files,
+    createdAt:
+      new Date(),
+    updatedAt:
+      new Date()
+  })
+
+  job.token =
+    token
+
+  return token
+}
+
+async function requestPairingCode(
+  job
+) {
   if (
     job.cleaned ||
     job.code ||
@@ -155,19 +269,21 @@ async function requestPairingCode(job) {
     return
   }
 
-  if (job.codeRequesting) {
+  if (
+    job.codeRequesting
+  ) {
     return
   }
 
-  job.codeRequesting = true
+  job.codeRequesting =
+    true
 
   try {
     await delay(2000)
 
     if (
       job.cleaned ||
-      job.code ||
-      job.status === 'error'
+      job.code
     ) {
       return
     }
@@ -185,22 +301,31 @@ async function requestPairingCode(job) {
 
     job.code =
       String(rawCode)
-        .replace(/[^A-Z0-9]/gi, '')
-        .match(/.{1,4}/g)
+        .replace(
+          /[^A-Z0-9]/gi,
+          ''
+        )
+        .match(
+          /.{1,4}/g
+        )
         ?.join('-') ||
       String(rawCode)
 
     job.status =
       'waiting'
 
-    job.error = ''
+    job.error =
+      ''
 
     console.log(
       `[PAIR] ${job.number} -> ${job.code}`
     )
   } catch (error) {
-    job.code = ''
-    job.status = 'connecting'
+    job.code =
+      ''
+
+    job.status =
+      'connecting'
 
     job.error =
       error?.message ||
@@ -209,7 +334,7 @@ async function requestPairingCode(job) {
     console.error(
       `[PAIR ERROR] ${job.number}:`,
       error?.message ||
-      error
+        error
     )
   } finally {
     job.codeRequesting =
@@ -217,7 +342,9 @@ async function requestPairingCode(job) {
   }
 }
 
-async function connectJob(job) {
+async function connectJob(
+  job
+) {
   if (
     job.cleaned
   ) {
@@ -237,26 +364,24 @@ async function connectJob(job) {
 
   const sock =
     makeWASocket({
-      auth: state,
+      auth:
+        state,
 
-      /*
-       * Use a canonical browser profile.
-       * This is important for pairing-code login.
-       */
       browser:
-        Browsers.macOS('Chrome'),
+        Browsers.macOS(
+          'Chrome'
+        ),
 
-      /*
-       * Pairing-code login does not need
-       * a terminal QR code.
-       */
-      printQRInTerminal: false,
+      printQRInTerminal:
+        false,
 
       logger,
 
-      markOnlineOnConnect: false,
+      markOnlineOnConnect:
+        false,
 
-      syncFullHistory: false,
+      syncFullHistory:
+        false,
 
       generateHighQualityLinkPreview:
         false,
@@ -294,15 +419,11 @@ async function connectJob(job) {
         qr
       } = update
 
-      /*
-       * Pairing code must be requested
-       * while the socket is connecting /
-       * has reached the QR stage.
-       */
       if (
         !state.creds.registered &&
         (
-          connection === 'connecting' ||
+          connection ===
+            'connecting' ||
           qr
         )
       ) {
@@ -317,7 +438,8 @@ async function connectJob(job) {
       }
 
       if (
-        connection === 'connecting'
+        connection ===
+        'connecting'
       ) {
         if (
           !job.code
@@ -327,18 +449,28 @@ async function connectJob(job) {
         }
       }
 
+      /*
+       * ==============================
+       * SUCCESSFULLY CONNECTED
+       * ==============================
+       */
+
       if (
-        connection === 'open'
+        connection ===
+        'open'
       ) {
         job.status =
           'connected'
 
-        job.error = ''
+        job.error =
+          ''
 
         try {
           await saveCreds()
 
-          await delay(1500)
+          await delay(
+            1500
+          )
 
           if (
             job.cleaned
@@ -346,9 +478,13 @@ async function connectJob(job) {
             return
           }
 
-          job.session =
-            await encodeSession(
-              job.dir
+          /*
+           * Save full auth files
+           * and create short token.
+           */
+          const token =
+            await saveSession(
+              job
             )
 
           job.status =
@@ -357,38 +493,63 @@ async function connectJob(job) {
           const jid =
             `${job.number}@s.whatsapp.net`
 
-          const messageText =
-            '╭─❒ ʀᴀᴢᴀ sᴇssɪᴏɴ ❒\n' +
-            '│\n' +
-            '│ ✓ ᴡʜᴀᴛsᴀᴘᴘ ᴘᴀɪʀᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ\n' +
-            '│\n' +
-            '│ ʏᴏᴜʀ sᴇssɪᴏɴ ɪᴅ:\n' +
-            `│ \`${job.session}\`\n` +
-            '│\n' +
-            '╰────────────'
+          /*
+           * ==============================
+           * 1. SCANNED SUCCESSFULLY
+           * ==============================
+           */
 
           try {
             await sock.sendMessage(
               jid,
               {
                 text:
-                  messageText
+                  '✓ ᴡʜᴀᴛsᴀᴘᴘ sᴄᴀɴɴᴇᴅ sᴜᴄᴄᴇssғᴜʟʟʏ'
               }
             )
+
+            await delay(
+              500
+            )
+
+            /*
+             * ==============================
+             * 2. SESSION ID ONLY
+             * ==============================
+             */
+
+            await sock.sendMessage(
+              jid,
+              {
+                text:
+                  token
+              }
+            )
+
+            await delay(
+              500
+            )
+
+            /*
+             * ==============================
+             * 3. SESSION DOCUMENT
+             * ==============================
+             */
 
             await sock.sendMessage(
               jid,
               {
                 document:
                   Buffer.from(
-                    job.session
+                    token,
+                    'utf8'
                   ),
+
                 mimetype:
                   'text/plain',
+
                 fileName:
-                  'RAZA-SESSION.txt',
-                caption:
-                  'Keep your session ID safe and do not share it with anyone.'
+                  'RAZA-SESSION.txt'
               }
             )
 
@@ -396,24 +557,25 @@ async function connectJob(job) {
               true
 
             console.log(
-              `[SESSION] Sent to ${job.number}`
+              `[SESSION] Sent successfully to ${job.number}`
             )
           } catch (error) {
             job.sendError =
               error?.message ||
-              'Could not send session message'
+              'Could not send session messages'
 
             console.error(
               `[SEND ERROR] ${job.number}:`,
               error?.message ||
-              error
+                error
             )
           }
 
           /*
-           * Give the messages time to send,
-           * then close the temporary socket.
+           * Close temporary socket
+           * after messages are sent.
            */
+
           setTimeout(
             async () => {
               await cleanupJob(
@@ -436,8 +598,15 @@ async function connectJob(job) {
         }
       }
 
+      /*
+       * ==============================
+       * CONNECTION CLOSED
+       * ==============================
+       */
+
       if (
-        connection === 'close'
+        connection ===
+        'close'
       ) {
         const statusCode =
           new Boom(
@@ -467,10 +636,6 @@ async function connectJob(job) {
           return
         }
 
-        /*
-         * Do not reconnect after a completed
-         * session or permanent error.
-         */
         if (
           [
             'ready',
@@ -534,15 +699,29 @@ async function connectJob(job) {
   )
 }
 
+/*
+ * ==============================
+ * HEALTH
+ * ==============================
+ */
+
 app.get(
   '/health',
   (req, res) => {
     res.json({
-      success: true,
-      status: 'online'
+      success:
+        true,
+      status:
+        'online'
     })
   }
 )
+
+/*
+ * ==============================
+ * CREATE PAIR
+ * ==============================
+ */
 
 app.post(
   '/api/pair',
@@ -557,17 +736,21 @@ app.post(
         number.length < 7 ||
         number.length > 15
       ) {
-        return res.status(400).json({
-          success: false,
+        return res.status(
+          400
+        ).json({
+          success:
+            false,
           error:
             'Invalid WhatsApp number'
         })
       }
 
       /*
-       * Return an existing active job
+       * Return existing active job
        * for the same number.
        */
+
       for (
         const job of jobs.values()
       ) {
@@ -581,9 +764,12 @@ app.post(
           )
         ) {
           return res.json({
-            success: true,
-            id: job.id,
-            code: job.code,
+            success:
+              true,
+            id:
+              job.id,
+            code:
+              job.code,
             status:
               job.status
           })
@@ -601,22 +787,28 @@ app.post(
             SESSIONS,
             crypto
               .randomBytes(8)
-              .toString('hex')
+              .toString(
+                'hex'
+              )
           ),
 
-        code: '',
+        code:
+          '',
+
+        token:
+          '',
 
         status:
           'starting',
 
-        session: '',
-
         sent:
           false,
 
-        error: '',
+        error:
+          '',
 
-        sendError: '',
+        sendError:
+          '',
 
         codeRequesting:
           false,
@@ -640,7 +832,8 @@ app.post(
       await fs.mkdir(
         job.dir,
         {
-          recursive: true
+          recursive:
+            true
         }
       )
 
@@ -653,12 +846,6 @@ app.post(
         job
       ).catch(
         async error => {
-          if (
-            job.cleaned
-          ) {
-            return
-          }
-
           job.status =
             'error'
 
@@ -673,10 +860,9 @@ app.post(
       )
 
       /*
-       * Wait for the code so the frontend
-       * normally receives it in the first
-       * API response.
+       * Wait for pairing code.
        */
+
       for (
         let i = 0;
         i < 48;
@@ -684,26 +870,37 @@ app.post(
       ) {
         if (
           job.code ||
-          job.status === 'error'
+          job.status ===
+            'error'
         ) {
           break
         }
 
-        await delay(250)
+        await delay(
+          250
+        )
       }
 
       return res.json({
-        success: true,
+        success:
+          true,
+
         id:
           job.id,
+
         code:
           job.code,
+
         status:
           job.status
       })
     } catch (error) {
-      return res.status(500).json({
-        success: false,
+      return res.status(
+        500
+      ).json({
+        success:
+          false,
+
         error:
           error?.message ||
           'Internal server error'
@@ -711,6 +908,12 @@ app.post(
     }
   }
 )
+
+/*
+ * ==============================
+ * PAIR STATUS
+ * ==============================
+ */
 
 app.get(
   '/api/status/:id',
@@ -721,27 +924,38 @@ app.get(
       )
 
     if (!job) {
-      return res.status(404).json({
-        success: false,
+      return res.status(
+        404
+      ).json({
+        success:
+          false,
         error:
           'Pairing session not found'
       })
     }
 
     res.json({
-      success: true,
+      success:
+        true,
+
       id:
         job.id,
+
       status:
         job.status,
+
       code:
         job.code,
+
       session:
-        job.session,
+        job.token,
+
       sent:
         job.sent,
+
       error:
         job.error,
+
       sendError:
         job.sendError
     })
@@ -749,9 +963,93 @@ app.get(
 )
 
 /*
- * Remove jobs that have been sitting
- * for more than 10 minutes.
+ * ==============================
+ * SESSION API
+ * ==============================
+ *
+ * The Raza-MD bot uses:
+ *
+ * GET /api/session/RAZA_xxxxx
+ *
+ * to download the full auth state.
  */
+
+app.get(
+  '/api/session/:token',
+  async (req, res) => {
+    try {
+      const token =
+        String(
+          req.params.token ||
+            ''
+        ).trim()
+
+      if (
+        !/^RAZA_[A-Za-z0-9_-]{10,100}$/
+          .test(token)
+      ) {
+        return res.status(
+          400
+        ).json({
+          success:
+            false,
+          error:
+            'Invalid session token'
+        })
+      }
+
+      const session =
+        await sessions.findOne({
+          token
+        })
+
+      if (!session) {
+        return res.status(
+          404
+        ).json({
+          success:
+            false,
+          error:
+            'Session not found or expired'
+        })
+      }
+
+      return res.json({
+        success:
+          true,
+
+        version:
+          session.version,
+
+        files:
+          session.files
+      })
+    } catch (error) {
+      console.error(
+        '[SESSION API]',
+        error?.message ||
+          error
+      )
+
+      return res.status(
+        500
+      ).json({
+        success:
+          false,
+
+        error:
+          'Could not retrieve session'
+      })
+    }
+  }
+)
+
+/*
+ * ==============================
+ * CLEAN OLD JOBS
+ * ==============================
+ */
+
 setInterval(
   async () => {
     const limit =
@@ -786,6 +1084,10 @@ app.listen(
   () => {
     console.log(
       `RAZA PAIR running on port ${PORT}`
+    )
+
+    console.log(
+      '[+] MongoDB session storage enabled.'
     )
   }
 )
